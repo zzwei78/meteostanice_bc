@@ -17,10 +17,10 @@ bc_button_t button;
 bc_tag_humidity_t humidity_tag;
 bc_module_sigfox_t sigfox_module;
 
-BC_DATA_STREAM_INT_BUFFER(stream_buffer_humidity, SENSOR_DATA_STREAM_SAMPLES)
+BC_DATA_STREAM_FLOAT_BUFFER(stream_buffer_humidity, SENSOR_DATA_STREAM_SAMPLES)
 bc_data_stream_t stream_humidity;
 
-BC_DATA_STREAM_INT_BUFFER(stream_buffer_temperature, SENSOR_DATA_STREAM_SAMPLES)
+BC_DATA_STREAM_FLOAT_BUFFER(stream_buffer_temperature, SENSOR_DATA_STREAM_SAMPLES)
 bc_data_stream_t stream_temperature;
 
 void button_event_handler(bc_button_t *self, bc_button_event_t event, void *event_param)
@@ -57,10 +57,10 @@ void sigfox_module_event_handler(bc_module_sigfox_t *self, bc_module_sigfox_even
 void humidity_tag_event_handler(bc_tag_humidity_t *self, bc_tag_humidity_event_t event, void *event_param) {
     (void) event;
     
-    uint16_t humidity_raw;
+    float humidity_temperature;
     float temperature_celsius;
-    /*
-    if(bc_tag_humidity_get_humidity_raw(&humidity_tag, &humidity_raw)) {
+
+    if(bc_tag_humidity_get_humidity_percetage(&humidity_tag, &humidity_raw)) {
         bc_data_stream_feed(&stream_humidity, &humidity_raw);
         
         bc_tag_humidity_get_humidity_percentage(&humidity_tag, &humidity_percentage);
