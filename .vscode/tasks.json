@@ -1,0 +1,52 @@
+{
+    "version": "2.0.0",
+    "command": "make",
+    "args": [],
+    "presentation" : { "reveal": "always" },
+    "echoCommand": true,
+    "suppresslabel": true,
+    "tasks": [
+        {
+            "label": "build",
+            "args": ["-j4"],
+            "type": "shell",
+            "command": "make",
+            "problemMatcher": {
+                "owner": "cpp",
+                "fileLocation": ["relative", "${workspaceRoot}"],
+                "pattern": {
+                    "regexp": "^(.*):(\\d+):(\\d+):\\s+(warning|error):\\s+(.*)$",
+                    "file": 1,
+                    "line": 2,
+                    "column": 3,
+                    "severity": 4,
+                    "message": 5
+                }
+            },
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            }
+        },
+        {
+            "label": "dfu",
+            "type": "shell",
+            "args": ["dfu"]
+        },
+        {
+            "label": "ozone",
+            "type": "shell",
+            "args": ["ozone"]
+        },
+        {
+            "label": "update",
+            "type": "shell",
+            "args": ["update"]
+        },
+        {
+            "label": "clean",
+            "type": "shell",
+            "args": ["clean"]
+        }
+    ]
+}
