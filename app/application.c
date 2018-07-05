@@ -56,37 +56,24 @@ void sigfox_module_event_handler(bc_module_sigfox_t *self, bc_module_sigfox_even
 
 void humidity_tag_event_handler(bc_tag_humidity_t *self, bc_tag_humidity_event_t event, void *event_param) {
     (void) event;
+    bc_led_pulse(&led, 1000);
     
-    float humidity_temperature;
+    float humidity_percentage;
     float temperature_celsius;
 
-    if(bc_tag_humidity_get_humidity_percetage(&humidity_tag, &humidity_raw)) {
-        bc_data_stream_feed(&stream_humidity, &humidity_raw);
-        
-        bc_tag_humidity_get_humidity_percentage(&humidity_tag, &humidity_percentage);
-        sprintf(buffer, "Humidity registered: %f\r\n", humidity_percentage);
-        bc_usb_cdc_write(buffer, strlen(buffer));
-        
-        
+    if(bc_tag_humidity_get_humidity_percentage(&humidity_tag, &humidity_percentage)) {
+        bc_data_stream_feed(&stream_humidity, &humidity_percentage);
     }
     else {
         bc_data_stream_reset(&stream_humidity);
-    } */
-    
-    //uint16_t temperature_raw;
+    }
 
     if(bc_tag_humidity_get_temperature_celsius(&humidity_tag, &temperature_celsius)) {
         bc_data_stream_feed(&stream_temperature, &temperature_celsius);
-        
-        char buffer[100];
-        bc_tag_humidity_get_temperature_celsius(&humidity_tag, &temperature_celsius);
-        sprintf(buffer, "Temperature registered: %f\r\n", temperature_celsius);
-        bc_usb_cdc_write(buffer, strlen(buffer));
     }
     else {
         bc_data_stream_reset(&stream_temperature);
     }
-    
 }
 
 void application_init(void) {
@@ -121,20 +108,20 @@ void application_task(void *param) {
 
     int battery_charge_level = 0;
 
-    uint16_t average;
+    float average_humidity;
+    float average_temperature;
 
     char buffer[100];
-    /*
-    if(bc_data_stream_get_average(&stream_humidity, &average)) {
-        sprintf(buffer, "Average humidity is: %d\r\n", average);
+
+    if(bc_data_stream_get_average(&stream_humidity, &average_humidity)) {
+        sprintf(buffer, "Average humidity is: %f\r\n", average_humidity);
         bc_usb_cdc_write(buffer, strlen(buffer));
     }
     
-    if(bc_data_stream_get_average(&stream_temperature, &average)) {
-        sprintf(buffer, "Average temperature is: %d\r\n", average);
+    if(bc_data_stream_get_average(&stream_temperature, &average_temperature)) {
+        sprintf(buffer, "Average temperature is: %f\r\n", average_temperature);
         bc_usb_cdc_write(buffer, strlen(buffer));
     }
 
     bc_scheduler_plan_current_relative(TESTING_REPORT_INTERVAL);
-    */
 }
