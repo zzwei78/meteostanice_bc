@@ -17,11 +17,19 @@ bc_button_t button;
 bc_tag_humidity_t humidity_tag;
 bc_module_sigfox_t sigfox_module;
 
+bc_scheduler_task_id_t convert_temperature_to_raw_task_id;
+
 BC_DATA_STREAM_FLOAT_BUFFER(stream_buffer_humidity, SENSOR_DATA_STREAM_SAMPLES)
 bc_data_stream_t stream_humidity;
 
 BC_DATA_STREAM_FLOAT_BUFFER(stream_buffer_temperature, SENSOR_DATA_STREAM_SAMPLES)
 bc_data_stream_t stream_temperature;
+
+float average_humidity;
+float average_temperature;
+
+uint16_t average_humidity_raw;
+uint16_t average_temperature_raw;
 
 void button_event_handler(bc_button_t *self, bc_button_event_t event, void *event_param)
 {
@@ -60,9 +68,22 @@ void humidity_tag_event_handler(bc_tag_humidity_t *self, bc_tag_humidity_event_t
     
     float humidity_percentage;
     float temperature_celsius;
+    uint16_t humidity_raw;
 
     if(bc_tag_humidity_get_humidity_percentage(&humidity_tag, &humidity_percentage)) {
         bc_data_stream_feed(&stream_humidity, &humidity_percentage);
+
+        bc_tag_humidity_get_humidity_raw(&humidity_tag, &humidity_raw);
+
+        char buffer[100];
+        sprintf(buffer, "Humidity percentage is: %f\r\n", humidity_percentage);
+        bc_usb_cdc_write(buffer, strlen(buffer));
+
+        sprintf(buffer, "Raw humidity is: %d\r\n", humidity_raw);
+        bc_usb_cdc_write(buffer, strlen(buffer));
+
+        sprintf(buffer, "Calculated raw humidity is: %d\r\n", (uint16_t) (humidity_percentage / 100.f * 65536.f));
+        bc_usb_cdc_write(buffer, strlen(buffer));
     }
     else {
         bc_data_stream_reset(&stream_humidity);
@@ -89,7 +110,7 @@ void application_init(void) {
 
     bc_data_stream_init(&stream_humidity, 1, &stream_buffer_humidity);
     bc_data_stream_init(&stream_temperature, 1, &stream_buffer_temperature);
-
+    
     bc_tag_humidity_init(&humidity_tag, BC_TAG_HUMIDITY_REVISION_R3, BC_I2C_I2C0, BC_TAG_HUMIDITY_I2C_ADDRESS_DEFAULT);
     bc_tag_humidity_set_update_interval(&humidity_tag, TESTING_MEASURE_INTERVAL);
     bc_tag_humidity_set_event_handler(&humidity_tag, humidity_tag_event_handler, NULL);
@@ -108,18 +129,29 @@ void application_task(void *param) {
 
     int battery_charge_level = 0;
 
-    float average_humidity;
-    float average_temperature;
-
     char buffer[100];
 
     if(bc_data_stream_get_average(&stream_humidity, &average_humidity)) {
         sprintf(buffer, "Average humidity is: %f\r\n", average_humidity);
         bc_usb_cdc_write(buffer, strlen(buffer));
+
+        if(average_humidity >= 100.f) {
+        	average_humidity = 100.f;
+        }
+
+        average_humidity_raw = average_humidity / 100.f * 65536.f;
+
+        sprintf(buffer, "Average raw humidity is: %d\r\n", average_humidity_raw);
+        bc_usb_cdc_write(buffer, strlen(buffer));
     }
     
     if(bc_data_stream_get_average(&stream_temperature, &average_temperature)) {
         sprintf(buffer, "Average temperature is: %f\r\n", average_temperature);
+        bc_usb_cdc_write(buffer, strlen(buffer));
+
+        average_temperature_raw = (average_temperature + 40.f) / 165.f * 65536.f;
+
+        sprintf(buffer, "Average raw temperature is: %d\r\n", average_temperature_raw);
         bc_usb_cdc_write(buffer, strlen(buffer));
     }
 
