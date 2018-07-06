@@ -4,10 +4,10 @@
 
 #define REPORT_INTERVAL     (30 * 60 * 1000)        // Data is sent every 30 minutes to the cloud.
 #define MEASURE_INTERVAL     (5 * 60 * 1000)        // Data is measured every 5 minutes.
-
-#define TESTING_REPORT_INTERVAL  (30 * 1000)
-#define TESTING_MEASURE_INTERVAL (10 * 1000)
 #define FIRST_REPORT              (5 * 1000)
+
+#define TESTING_REPORT_INTERVAL  (60 * 1000)
+#define TESTING_MEASURE_INTERVAL (15 * 1000)
 
 #define APPLICATION_TASK_ID                0
 #define SENSOR_DATA_STREAM_SAMPLES         8
@@ -17,6 +17,7 @@ bc_button_t button;
 bc_tag_humidity_t humidity_tag;
 bc_module_sigfox_t sigfox_module;
 bc_scheduler_task_id_t send_sigfox_frame_task_id;
+bc_scheduler_task_id_t send_sigfox_frame_current_values_task_id;
 
 BC_DATA_STREAM_FLOAT_BUFFER(stream_buffer_humidity, SENSOR_DATA_STREAM_SAMPLES)
 bc_data_stream_t stream_humidity;
@@ -30,18 +31,47 @@ float average_temperature;
 uint16_t average_humidity_raw;
 uint16_t average_temperature_raw;
 
+uint16_t current_humidity_raw;
+uint16_t current_temperature_raw;
+
 int battery_charge_level = 0;
 int battery_state = 0;
 
 void button_event_handler(bc_button_t *self, bc_button_event_t event, void *event_param)
 {
-    if (event == BC_BUTTON_EVENT_PRESS)
-    {
-        bc_led_set_mode(&led, BC_LED_MODE_TOGGLE);
+    if (event == BC_BUTTON_EVENT_PRESS) {
+    	bc_led_pulse(&led, 1000);
 
-        char buffer[100];
-        sprintf(buffer, "Button pressed!\r\n");
-        bc_usb_cdc_write(buffer, strlen(buffer));
+    	float current_humidity;
+    	float current_temperature;
+
+    	char buffer[100];
+
+    	if(bc_tag_humidity_get_humidity_percentage(&humidity_tag, &current_humidity)) {
+	    	sprintf(buffer, "Current humidity is: %f\r\n", current_humidity);
+	    	bc_usb_cdc_write(buffer, strlen(buffer));
+
+	    	if(current_humidity >= 100.f) {
+	    	    current_humidity = 100.f;
+	    	}
+
+	    	current_humidity_raw = current_humidity / 100.f * 65536.f;
+
+	    	sprintf(buffer, "Current raw humidity is: %x\r\n", current_humidity_raw);
+	    	bc_usb_cdc_write(buffer, strlen(buffer));
+
+    		if(bc_tag_humidity_get_temperature_celsius(&humidity_tag, &current_temperature)) {
+    	        sprintf(buffer, "Current temperature is: %f\r\n", current_temperature);
+    	        bc_usb_cdc_write(buffer, strlen(buffer));
+
+    	        current_temperature_raw = (current_temperature + 40.f) / 165.f * 65536.f;
+
+    	        sprintf(buffer, "Current raw temperature is: %x\r\n\r\n", average_temperature_raw);
+    	        bc_usb_cdc_write(buffer, strlen(buffer));
+
+    	        bc_scheduler_plan_now(send_sigfox_frame_current_values_task_id);
+    		}
+    	}
     }
 }
 
@@ -110,7 +140,7 @@ void send_sigfox_frame(void *param) {
 
     	bc_usb_cdc_write(buffer, strlen(buffer));
 
-        bc_scheduler_plan_current_now();
+        bc_scheduler_plan_current_from_now(100);
         return;
     }
 
@@ -145,6 +175,52 @@ void send_sigfox_frame(void *param) {
 	bc_module_sigfox_send_rf_frame(&sigfox_module, sigfoxBuf, sizeof(sigfoxBuf));
 }
 
+void send_sigfox_frame_current_values(void *param) {
+	(void) param;
+
+    if(!bc_module_sigfox_is_ready(&sigfox_module))
+    {
+    	char buffer[100];
+
+    	sprintf(buffer, "Sigfox module is not ready.\r\n");
+
+    	bc_usb_cdc_write(buffer, strlen(buffer));
+
+        bc_scheduler_plan_current_now();
+        return;
+    }
+
+    bc_module_battery_measure();
+
+    bc_module_battery_get_charge_level(&battery_charge_level);
+
+   	char buffer[100];
+
+    sprintf(buffer, "Sigfox module starts transmission!\r\n");
+
+    bc_usb_cdc_write(buffer, strlen(buffer));
+
+    uint8_t sigfoxBuf[7];
+
+    sigfoxBuf[0] = current_temperature_raw >> 8;
+    sigfoxBuf[1] = current_temperature_raw;
+    sigfoxBuf[2] = current_humidity_raw >> 8;
+    sigfoxBuf[3] = current_humidity_raw;
+    sigfoxBuf[4] = battery_charge_level >> 8;
+    sigfoxBuf[5] = battery_charge_level;
+    sigfoxBuf[6] = battery_state;
+
+    char printBuf[100];
+
+    for(uint16_t i = 0; i < sizeof(sigfoxBuf); i++) {
+    	sprintf(&printBuf[i * 2], "%x\r\n", sigfoxBuf[i]);
+    }
+
+	bc_usb_cdc_write(printBuf, strlen(printBuf));
+
+	bc_module_sigfox_send_rf_frame(&sigfox_module, sigfoxBuf, sizeof(sigfoxBuf));
+}
+
 void application_init(void) {
     bc_led_init(&led, BC_GPIO_LED, false, false);
     bc_led_set_mode(&led, BC_LED_MODE_OFF);
@@ -158,8 +234,8 @@ void application_init(void) {
     bc_module_sigfox_init(&sigfox_module, BC_MODULE_SIGFOX_REVISION_R2);
     bc_module_sigfox_set_event_handler(&sigfox_module, sigfox_module_event_handler, NULL);
 
-    bc_data_stream_init(&stream_humidity, 1, &stream_buffer_humidity);
-    bc_data_stream_init(&stream_temperature, 1, &stream_buffer_temperature);
+    bc_data_stream_init(&stream_humidity, SENSOR_DATA_STREAM_SAMPLES, &stream_buffer_humidity);
+    bc_data_stream_init(&stream_temperature, SENSOR_DATA_STREAM_SAMPLES, &stream_buffer_temperature);
     
     bc_tag_humidity_init(&humidity_tag, BC_TAG_HUMIDITY_REVISION_R3, BC_I2C_I2C0, BC_TAG_HUMIDITY_I2C_ADDRESS_DEFAULT);
     bc_tag_humidity_set_update_interval(&humidity_tag, TESTING_MEASURE_INTERVAL);
@@ -170,6 +246,7 @@ void application_init(void) {
     bc_button_set_event_handler(&button, button_event_handler, NULL);
 
     send_sigfox_frame_task_id = bc_scheduler_register(send_sigfox_frame, NULL, BC_TICK_INFINITY);
+    send_sigfox_frame_current_values_task_id = bc_scheduler_register(send_sigfox_frame_current_values, NULL, BC_TICK_INFINITY);
 
     bc_scheduler_plan_from_now(APPLICATION_TASK_ID, FIRST_REPORT);
 
@@ -191,7 +268,7 @@ void application_task(void *param) {
 
         average_humidity_raw = average_humidity / 100.f * 65536.f;
 
-        sprintf(buffer, "Average raw humidity is: %d\r\n", average_humidity_raw);
+        sprintf(buffer, "Average raw humidity is: %x\r\n", average_humidity_raw);
         bc_usb_cdc_write(buffer, strlen(buffer));
 
         if(bc_data_stream_get_average(&stream_temperature, &average_temperature)) {
@@ -200,7 +277,7 @@ void application_task(void *param) {
 
             average_temperature_raw = (average_temperature + 40.f) / 165.f * 65536.f;
 
-            sprintf(buffer, "Average raw temperature is: %d\r\n", average_temperature_raw);
+            sprintf(buffer, "Average raw temperature is: %x\r\n\r\n", average_temperature_raw);
             bc_usb_cdc_write(buffer, strlen(buffer));
 
             bc_scheduler_plan_now(send_sigfox_frame_task_id);
