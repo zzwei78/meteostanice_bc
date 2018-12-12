@@ -12,9 +12,9 @@
 #define APPLICATION_TASK_ID                0
 #define SENSOR_DATA_STREAM_SAMPLES         5
 
-typedef enum programModes {
-	RUN = 0,
-	TEST = 1
+typedef enum programMode{
+	RUN,
+	TEST
 };
 
 bc_led_t led;
@@ -32,6 +32,8 @@ BC_DATA_STREAM_FLOAT_BUFFER(stream_buffer_temperature, SENSOR_DATA_STREAM_SAMPLE
 bc_data_stream_t stream_temperature;
 */
 
+programMode mode;
+
 float average_humidity;
 float average_temperature;
 
@@ -44,6 +46,55 @@ uint16_t current_temperature_raw;
 int battery_charge_level = 0;
 int battery_state = 0;
 
+char buffer[100];
+
+// Function definitions
+
+bool logTemperature (void);
+bool logHumidity (void);
+
+bool logTemperature (void) {
+	if(bc_tag_humidity_get_temperature_celsius(&humidity_tag, &current_temperature)) {
+	    sprintf(buffer, "Current temperature is: %f\r\n", current_temperature);
+	    bc_usb_cdc_write(buffer, strlen(buffer));
+
+	    current_temperature_raw = (current_temperature + 46.85f) / 172.72f * 65536.f;
+
+		sprintf(buffer, "Current raw temperature is: %d\r\n\r\n", current_temperature_raw);
+	    bc_usb_cdc_write(buffer, strlen(buffer));
+
+	    bc_scheduler_plan_now(send_sigfox_frame_current_values_task_id);
+	    return true;
+	}
+	else {
+		sprint(buffer, "Temperature measurement failed. \r\n\r\n");
+        bc_usb_cdc_write(buffer, strlen(buffer));
+  		return false;
+	}
+}
+
+bool logHumidity (void) {
+	if(bc_tag_humidity_get_humidity_percentage(&humidity_tag, &current_humidity)) {
+    	sprintf(buffer, "Current humidity is: %f\r\n", current_humidity);
+    	bc_usb_cdc_write(buffer, strlen(buffer));
+
+    	if(current_humidity >= 100.f) {
+    	    current_humidity = 100.f;
+    	}
+
+    	current_humidity_raw = (current_humidity + 6.f) * 65536.f / 125.f;
+
+    	sprintf(buffer, "Current raw humidity is: %d\r\n", current_humidity_raw);
+    	bc_usb_cdc_write(buffer, strlen(buffer));
+    	return true;
+	}
+	else {
+		sprint(buffer, "Humidity measurement failed. \r\n\r\n");
+        bc_usb_cdc_write(buffer, strlen(buffer));
+        return false;
+	}
+}
+
 void button_event_handler(bc_button_t *self, bc_button_event_t event, void *event_param)
 {
     if (event == BC_BUTTON_EVENT_PRESS) {
@@ -52,40 +103,10 @@ void button_event_handler(bc_button_t *self, bc_button_event_t event, void *even
     	float current_humidity;
     	float current_temperature;
 
-    	char buffer[100];
-
-    	if(bc_tag_humidity_get_humidity_percentage(&humidity_tag, &current_humidity)) {
-	    	sprintf(buffer, "Current humidity is: %f\r\n", current_humidity);
-	    	bc_usb_cdc_write(buffer, strlen(buffer));
-
-	    	if(current_humidity >= 100.f) {
-	    	    current_humidity = 100.f;
-	    	}
-
-	    	current_humidity_raw = (current_humidity + 6.f) * 65536.f / 125.f;
-
-	    	sprintf(buffer, "Current raw humidity is: %d\r\n", current_humidity_raw);
-	    	bc_usb_cdc_write(buffer, strlen(buffer));
-
-    		if(bc_tag_humidity_get_temperature_celsius(&humidity_tag, &current_temperature)) {
-    	        sprintf(buffer, "Current temperature is: %f\r\n", current_temperature);
-    	        bc_usb_cdc_write(buffer, strlen(buffer));
-
-    	        current_temperature_raw = (current_temperature + 46.85f) / 172.72f * 65536.f;
-
-    	        sprintf(buffer, "Current raw temperature is: %d\r\n\r\n", current_temperature_raw);
-    	        bc_usb_cdc_write(buffer, strlen(buffer));
-
-    	        bc_scheduler_plan_now(send_sigfox_frame_current_values_task_id);
+    	if(logTemperature) {
+    		if(logHumidity) {
+    			bc_scheduler_plan_now(send_sigfox_frame_task_id);
     		}
-    		else {
-    			print("Temperature measurement failed.");
-    	        bc_usb_cdc_write(buffer, strlen(buffer));
-    		}
-    	}
-    	else {
-    			print("Humidity measurement failed. Skipping humidity measurement.");
-    	        bc_usb_cdc_write(buffer, strlen(buffer));
     	}
     }
 }
@@ -123,6 +144,7 @@ void sigfox_module_event_handler(bc_module_sigfox_t *self, bc_module_sigfox_even
     }
 }
 
+/*
 void humidity_tag_event_handler(bc_tag_humidity_t *self, bc_tag_humidity_event_t event, void *event_param) {
     (void) event;
     bc_led_pulse(&led, 1000);
@@ -143,16 +165,14 @@ void humidity_tag_event_handler(bc_tag_humidity_t *self, bc_tag_humidity_event_t
         bc_data_stream_reset(&stream_temperature);
     }
 }
+*/
 
 void send_sigfox_frame(void *param) {
 	(void) param;
 
-	char buffer[100];
-
     if(!bc_module_sigfox_is_ready(&sigfox_module))
     {
     	sprintf(buffer, "Sigfox module is not ready.\r\n");
-
     	bc_usb_cdc_write(buffer, strlen(buffer));
 
         bc_scheduler_plan_current_from_now(100);
@@ -164,7 +184,6 @@ void send_sigfox_frame(void *param) {
     bc_module_battery_get_charge_level(&battery_charge_level);
 
     sprintf(buffer, "Sigfox module starts transmission!\r\n");
-
     bc_usb_cdc_write(buffer, strlen(buffer));
 
     uint8_t sigfoxBuf[8];
@@ -189,6 +208,7 @@ void send_sigfox_frame(void *param) {
 	bc_module_sigfox_send_rf_frame(&sigfox_module, sigfoxBuf, sizeof(sigfoxBuf));
 }
 
+/*
 void send_sigfox_frame_current_values(void *param) {
 	(void) param;
 
@@ -208,10 +228,7 @@ void send_sigfox_frame_current_values(void *param) {
 
     bc_module_battery_get_charge_level(&battery_charge_level);
 
-   	char buffer[100];
-
     sprintf(buffer, "Sigfox module starts transmission!\r\n");
-
     bc_usb_cdc_write(buffer, strlen(buffer));
 
     uint8_t sigfoxBuf[8];
@@ -235,6 +252,7 @@ void send_sigfox_frame_current_values(void *param) {
 
 	bc_module_sigfox_send_rf_frame(&sigfox_module, sigfoxBuf, sizeof(sigfoxBuf));
 }
+*/
 
 void application_init(void) {
     bc_led_init(&led, BC_GPIO_LED, false, false);
@@ -263,7 +281,7 @@ void application_init(void) {
     bc_button_set_event_handler(&button, button_event_handler, NULL);
 
     send_sigfox_frame_task_id = bc_scheduler_register(send_sigfox_frame, NULL, BC_TICK_INFINITY);
-    send_sigfox_frame_current_values_task_id = bc_scheduler_register(send_sigfox_frame_current_values, NULL, BC_TICK_INFINITY);
+    //send_sigfox_frame_current_values_task_id = bc_scheduler_register(send_sigfox_frame_current_values, NULL, BC_TICK_INFINITY);
 
     bc_scheduler_plan_from_now(APPLICATION_TASK_ID, FIRST_REPORT);
 
@@ -273,32 +291,19 @@ void application_init(void) {
 void application_task(void *param) {
     (void) param;
 
-    char buffer[100];
+	float current_humidity;
+	float current_temperature;
 
-    if(bc_data_stream_get_average(&stream_humidity, &average_humidity)) {
-        sprintf(buffer, "Average humidity is: %f\r\n", average_humidity);
-        bc_usb_cdc_write(buffer, strlen(buffer));
+	if(logTemperature) {
+		if(logHumidity) {
+			bc_scheduler_plan_now(send_sigfox_frame_task_id);
+		}
+	}
 
-        if(average_humidity >= 100.f) {
-        	average_humidity = 100.f;
-        }
-
-        average_humidity_raw = (average_humidity + 6.f) * 65536.f / 125.f;
-
-        sprintf(buffer, "Average raw humidity is: %d\r\n", average_humidity_raw);
-        bc_usb_cdc_write(buffer, strlen(buffer));
-
-        if(bc_data_stream_get_average(&stream_temperature, &average_temperature)) {
-            sprintf(buffer, "Average temperature is: %f\r\n", average_temperature);
-            bc_usb_cdc_write(buffer, strlen(buffer));
-
-            average_temperature_raw = (average_temperature + 46.85f) / 172.72f * 65536.f;
-
-            sprintf(buffer, "Average raw temperature is: %d\r\n\r\n", average_temperature_raw);
-            bc_usb_cdc_write(buffer, strlen(buffer));
-
-            bc_scheduler_plan_now(send_sigfox_frame_task_id);
-    	}
-    }
-    bc_scheduler_plan_current_relative(REPORT_INTERVAL);
+	if (mode = RUN) {
+    	bc_scheduler_plan_current_relative(REPORT_INTERVAL);
+	}
+	if (mode = TEST) {
+		bc_scheduler_plan_current_relative(TESTING_REPORT_INTERVAL);
+	}
 }
